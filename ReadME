@@ -1,0 +1,19 @@
+# Fake News Detection
+
+## Overview
+This project detects fake news articles using Logistic Regression. It processes text data from news articles and predicts whether the news is real or fake.
+
+## Dataset
+The dataset contains:
+- Text: news article content or headline
+- Label: 1 for fake, 0 for real
+
+## Methodology
+1. Text preprocessing:
+   - Tokenization
+   - Stopword removal
+   - Lemmatization
+2. Feature extraction using TF-IDF
+3. Model: Logistic Regression
+4. Evaluation using accuracy, precision, recall, F1-score, and confusion matrix
+
