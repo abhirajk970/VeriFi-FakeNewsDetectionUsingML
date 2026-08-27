@@ -1,19 +1,917 @@
-# Fake News Detection
+# Fake News Detection System
+
+An end-to-end **Fake News Detection web application** that uses Natural Language Processing (NLP) and Machine Learning to classify news headlines as **Fake** or **Real**. The application is built with Flask and also retrieves related articles from **NewsAPI** and **GDELT** to provide additional context for users.
+
+---
 
 ## Overview
-This project detects fake news articles using Logistic Regression. It processes text data from news articles and predicts whether the news is real or fake.
 
-## Dataset
-The dataset contains:
-- Text: news article content or headline
-- Label: 1 for fake, 0 for real
+The system combines:
 
-## Methodology
-1. Text preprocessing:
-   - Tokenization
-   - Stopword removal
-   - Lemmatization
-2. Feature extraction using TF-IDF
-3. Model: Logistic Regression
-4. Evaluation using accuracy, precision, recall, F1-score, and confusion matrix
+* NLP-based text preprocessing
+* TF-IDF feature extraction
+* Logistic Regression classification
+* GridSearchCV-based hyperparameter tuning
+* Flask web application
+* NewsAPI integration
+* GDELT API integration
 
+A user can enter a news headline through the web interface. The application processes the headline using the trained ML pipeline, predicts whether it is fake or real, and then fetches related articles from external news sources.
+
+> **Important:** The model predicts based on patterns learned from its training data. It does not independently verify the factual truth of a news claim.
+
+---
+
+## Key Features
+
+* **Fake News Classification** using Logistic Regression
+* **Natural Language Processing** for text preprocessing
+* Removal of non-alphabetic characters
+* Lowercasing and tokenization
+* English stopword removal
+* Porter stemming
+* **TF-IDF Vectorization**
+* **GridSearchCV** for hyperparameter optimization
+* Stratified train-test split
+* Persistent model and vectorizer using Joblib
+* Flask-based web interface
+* Real-time headline prediction
+* Related article retrieval using NewsAPI
+* Additional article retrieval using GDELT
+* Article deduplication
+* Input validation and API error handling
+
+---
+
+# System Architecture
+
+```text
+                         ┌──────────────────┐
+                         │      User        │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ Flask Web UI     │
+                         │   index.html     │
+                         └────────┬─────────┘
+                                  │
+                           POST /predict
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ Text Preprocess  │
+                         │                  │
+                         │ • Clean text     │
+                         │ • Lowercase      │
+                         │ • Stopwords      │
+                         │ • Stemming       │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ TF-IDF Vectorizer│
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ Logistic         │
+                         │ Regression Model │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ Fake / Real      │
+                         │ Prediction       │
+                         └────────┬─────────┘
+                                  │
+                    ┌─────────────┴─────────────┐
+                    ▼                           ▼
+             ┌─────────────┐             ┌─────────────┐
+             │  NewsAPI    │             │    GDELT    │
+             └──────┬──────┘             └──────┬──────┘
+                    │                           │
+                    └─────────────┬─────────────┘
+                                  ▼
+                         ┌──────────────────┐
+                         │ Related Articles │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │ Flask/Jinja2 UI  │
+                         │ Prediction +     │
+                         │ Articles         │
+                         └──────────────────┘
+```
+
+---
+
+# Dataset
+
+The training pipeline combines data from three CSV files:
+
+```text
+train.csv
+Fake.csv
+True.csv
+```
+
+### Label Encoding
+
+| Label | Meaning   |
+| ----: | --------- |
+|   `0` | Real News |
+|   `1` | Fake News |
+
+For the additional datasets:
+
+```python
+fake_news['label'] = 1
+real_news['label'] = 0
+```
+
+The three datasets are then combined into a single training dataset.
+
+---
+
+# Machine Learning Pipeline
+
+## 1. Loading the Data
+
+The datasets are loaded using Pandas.
+
+```python
+train_data = pd.read_csv('train.csv').fillna(' ')
+fake_news = pd.read_csv('Fake.csv')
+real_news = pd.read_csv('True.csv')
+```
+
+Missing values in `train.csv` are replaced with blank strings.
+
+---
+
+## 2. Preparing the Input Text
+
+For `train.csv`, the author and title are combined:
+
+```python
+train_data['head'] = train_data['author'] + ' ' + train_data['title']
+```
+
+Only the required columns are then retained:
+
+```text
+head
+label
+```
+
+For the additional datasets, the article title is used as the input text.
+
+```python
+fake_news['head'] = fake_news['title']
+real_news['head'] = real_news['title']
+```
+
+Finally, all datasets are combined:
+
+```python
+combined_data = pd.concat(
+    [train_data, fake_news, real_news],
+    ignore_index=True
+)
+```
+
+---
+
+# Text Preprocessing
+
+The project uses NLTK's **Porter Stemmer** for preprocessing.
+
+Each headline goes through the following steps:
+
+1. Remove non-alphabetic characters
+2. Convert text to lowercase
+3. Split text into individual words
+4. Remove English stopwords
+5. Apply Porter stemming
+6. Join the processed words back into a string
+
+The preprocessing function is:
+
+```python
+def stemming(head):
+    stemmed_head = re.sub('[^a-zA-Z]', ' ', head)
+    stemmed_head = stemmed_head.lower()
+    stemmed_head = stemmed_head.split()
+
+    stemmed_head = [
+        ps.stem(word)
+        for word in stemmed_head
+        if word not in stopwords.words('english')
+    ]
+
+    return ' '.join(stemmed_head)
+```
+
+### Example
+
+```text
+Original:
+"Government Announces New Economic Policies!"
+
+After preprocessing:
+"government announc new econom polici"
+```
+
+The project uses **stemming**, not lemmatization.
+
+---
+
+# TF-IDF Feature Extraction
+
+Machine learning algorithms cannot directly process raw text, so the processed headlines are converted into numerical feature vectors using **TF-IDF (Term Frequency-Inverse Document Frequency)**.
+
+```python
+vectorizer = TfidfVectorizer()
+
+X = vectorizer.fit_transform(
+    combined_data['head'].values
+)
+```
+
+TF-IDF gives higher importance to words that are useful for distinguishing documents while reducing the importance of words that appear frequently across many documents.
+
+The resulting representation is a sparse numerical matrix suitable for text classification.
+
+---
+
+# Train-Test Split
+
+The dataset is divided into:
+
+* **80% training data**
+* **20% testing data**
+
+A stratified split is used so that the distribution of fake and real news is preserved.
+
+```python
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    stratify=y,
+    random_state=2
+)
+```
+
+---
+
+# Model
+
+The project uses **Logistic Regression** for binary classification.
+
+```python
+model = LogisticRegression()
+```
+
+Logistic Regression is particularly suitable for text classification because TF-IDF produces high-dimensional sparse feature vectors.
+
+The model learns relationships between words/features and the two classes:
+
+```text
+0 → Real
+1 → Fake
+```
+
+---
+
+# Hyperparameter Optimization
+
+Instead of relying on default Logistic Regression parameters, the project uses **GridSearchCV** to find a better configuration.
+
+The parameter grid contains:
+
+```python
+param_grid = {
+    'C': [0.01, 0.1, 1, 10, 100],
+    'solver': ['liblinear', 'saga'],
+    'penalty': ['l1', 'l2']
+}
+```
+
+The model is evaluated using **5-fold cross-validation**.
+
+```python
+grid_search = GridSearchCV(
+    model,
+    param_grid,
+    scoring='accuracy',
+    cv=5,
+    verbose=1
+)
+```
+
+The best-performing model is selected automatically.
+
+---
+
+# Model Persistence
+
+After training, both the trained model and TF-IDF vectorizer are serialized using Joblib.
+
+```python
+joblib.dump(
+    grid_search.best_estimator_,
+    'best_model.pkl'
+)
+
+joblib.dump(
+    vectorizer,
+    'vectorizer.pkl'
+)
+```
+
+The application loads these files when it starts:
+
+```python
+best_model = joblib.load('best_model.pkl')
+vectorizer = joblib.load('vectorizer.pkl')
+```
+
+This means the model does **not need to be retrained every time the Flask application starts**.
+
+---
+
+# Prediction Pipeline
+
+When a user submits a headline, the prediction pipeline is:
+
+```text
+User Input
+    ↓
+TF-IDF Vectorization
+    ↓
+Logistic Regression
+    ↓
+Prediction
+    ↓
+0 → Real
+1 → Fake
+```
+
+The prediction function is:
+
+```python
+def prediction(input_text):
+    input_data = vectorizer.transform([input_text])
+    prediction = best_model.predict(input_data)
+
+    return prediction[0]
+```
+
+The numerical prediction is converted into a user-friendly result:
+
+```python
+result = (
+    'The News is Fake'
+    if pred == 1
+    else 'The News is Real'
+)
+```
+
+---
+
+# Web Interface
+
+The project includes a web interface that allows users to interact with the machine learning model without directly running Python code.
+
+The frontend is served using **Flask** and uses an HTML template called:
+
+```text
+templates/
+└── index.html
+```
+
+The interface provides a simple workflow:
+
+```text
+Enter News Headline
+        ↓
+     Predict
+        ↓
+Fake / Real Result
+        ↓
+Related News Articles
+```
+
+---
+
+## Home Page
+
+The root route displays the web interface:
+
+```python
+@app.route('/')
+def home():
+    return render_template('index.html')
+```
+
+When a user visits the application, Flask renders `index.html`.
+
+The page provides an input field where the user can enter a news headline.
+
+---
+
+## News Input
+
+The user submits the headline through the web form.
+
+The form sends a `POST` request to:
+
+```text
+/predict
+```
+
+The Flask backend retrieves the submitted value using:
+
+```python
+input_text = request.form.get(
+    'news',
+    ''
+).strip()
+```
+
+The `.strip()` operation removes leading and trailing whitespace.
+
+---
+
+## Input Validation
+
+Before making a prediction, the application checks whether the user entered any text.
+
+```python
+if not input_text:
+    return render_template(
+        'index.html',
+        prediction_text="Please enter a news headline."
+    )
+```
+
+This prevents empty submissions from being sent to the ML model or external APIs.
+
+---
+
+# Flask Backend
+
+The Flask application contains two main routes.
+
+## `GET /`
+
+Displays the home page.
+
+```python
+@app.route('/')
+def home():
+    return render_template('index.html')
+```
+
+## `POST /predict`
+
+Processes the submitted headline.
+
+```python
+@app.route('/predict', methods=['POST'])
+def predict():
+```
+
+The route:
+
+1. Retrieves the headline
+2. Validates the input
+3. Runs the ML prediction
+4. Converts the prediction into a readable result
+5. Fetches related articles
+6. Sends the results back to the HTML template
+
+The final response is rendered using:
+
+```python
+return render_template(
+    'index.html',
+    prediction_text=result,
+    articles=related_articles
+)
+```
+
+---
+
+# Jinja2 Template Integration
+
+Flask uses the **Jinja2 templating engine** to dynamically pass backend data into the HTML interface.
+
+The backend provides two important values:
+
+```python
+prediction_text=result
+articles=related_articles
+```
+
+The template can then display:
+
+* The prediction result
+* The list of related articles
+* Article titles
+* Article links
+* The source of each article
+
+This creates the connection between the machine learning backend and the user interface.
+
+---
+
+# Related News Articles
+
+The application does more than simply classify the headline.
+
+After making the prediction, it searches external news sources for related articles.
+
+Two APIs are used:
+
+```text
+NewsAPI
+GDELT
+```
+
+This gives the user additional sources that can be inspected to help verify the information.
+
+---
+
+# NewsAPI Integration
+
+The application sends the submitted headline to NewsAPI.
+
+Before making the request, the search query is limited to the first five words:
+
+```python
+query = ' '.join(query.split()[:5])
+```
+
+This keeps the query concise.
+
+The application extracts the following information from each article:
+
+```text
+Title
+URL
+Source
+```
+
+The resulting objects have the structure:
+
+```python
+{
+    'title': article['title'],
+    'url': article['url'],
+    'source': 'NewsAPI'
+}
+```
+
+---
+
+# GDELT Integration
+
+The application also queries the GDELT API using the same search query.
+
+GDELT is used as a second external source for finding related news articles.
+
+The application requests a maximum of five GDELT articles:
+
+```text
+mode=artlist
+maxrecords=5
+format=json
+```
+
+The relevant information is extracted in the same format as NewsAPI results.
+
+---
+
+# Article Deduplication
+
+Articles retrieved from NewsAPI and GDELT are combined:
+
+```python
+all_articles = newsapi_articles + gdelt_articles
+```
+
+Duplicate articles are removed based on their titles:
+
+```python
+unique_articles = {
+    article['title']: article
+    for article in all_articles
+}.values()
+```
+
+Finally, the application displays at most five unique articles:
+
+```python
+return list(unique_articles)[:5]
+```
+
+---
+
+# Error Handling
+
+External API requests are wrapped in `try-except` blocks.
+
+For example:
+
+```python
+try:
+    response = requests.get(newsapi_url)
+
+    if response.status_code == 200:
+        ...
+except Exception as e:
+    print(f"Error with NewsAPI: {e}")
+```
+
+This ensures that an API failure does not necessarily prevent the ML prediction from being displayed.
+
+The same approach is used for GDELT.
+
+---
+
+# Complete User Flow
+
+The complete application flow is:
+
+```text
+1. User opens the website
+            ↓
+2. Flask renders index.html
+            ↓
+3. User enters a news headline
+            ↓
+4. User submits the form
+            ↓
+5. Flask receives POST /predict
+            ↓
+6. Input is validated
+            ↓
+7. TF-IDF vectorizer transforms the text
+            ↓
+8. Logistic Regression predicts the class
+            ↓
+9. Result is converted to Fake / Real
+            ↓
+10. NewsAPI is queried
+            ↓
+11. GDELT is queried
+            ↓
+12. Articles are combined
+            ↓
+13. Duplicate articles are removed
+            ↓
+14. Maximum 5 articles are selected
+            ↓
+15. Flask renders index.html
+            ↓
+16. Prediction + related articles
+    are displayed to the user
+```
+
+---
+
+# Project Structure
+
+```text
+Fake-News-Detection/
+│
+├── app.py                    # Flask application
+├── train.py                  # Model training pipeline
+│
+├── best_model.pkl            # Trained Logistic Regression model
+├── vectorizer.pkl            # Saved TF-IDF vectorizer
+│
+├── train.csv                # Training dataset
+├── Fake.csv                 # Fake news dataset
+├── True.csv                 # Real news dataset
+│
+├── templates/
+│   └── index.html            # Web interface
+│
+└── README.md
+```
+
+---
+
+# Technologies Used
+
+| Technology          | Purpose                   |
+| ------------------- | ------------------------- |
+| Python              | Core programming language |
+| Flask               | Web application/backend   |
+| Pandas              | Data processing           |
+| NLTK                | NLP preprocessing         |
+| Scikit-learn        | Machine learning          |
+| TF-IDF              | Text feature extraction   |
+| Logistic Regression | Classification            |
+| GridSearchCV        | Hyperparameter tuning     |
+| Joblib              | Model serialization       |
+| Requests            | API communication         |
+| NewsAPI             | Related news retrieval    |
+| GDELT               | Additional news retrieval |
+| HTML/CSS            | Web interface             |
+| Jinja2              | Dynamic HTML rendering    |
+
+---
+
+# Installation
+
+## 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+
+cd Fake-News-Detection
+```
+
+## 2. Install Dependencies
+
+```bash
+pip install flask requests pandas nltk scikit-learn joblib
+```
+
+## 3. Download NLTK Stopwords
+
+Run Python:
+
+```python
+import nltk
+
+nltk.download('stopwords')
+```
+
+---
+
+# Train the Model
+
+Run the training script:
+
+```bash
+python train.py
+```
+
+The script will:
+
+1. Load the datasets
+2. Assign labels
+3. Combine the datasets
+4. Preprocess the text
+5. Generate TF-IDF features
+6. Split the data
+7. Perform GridSearchCV
+8. Train the best Logistic Regression model
+9. Save the model and vectorizer
+
+The following files will be generated:
+
+```text
+best_model.pkl
+vectorizer.pkl
+```
+
+---
+
+# Run the Application
+
+After training the model:
+
+```bash
+python app.py
+```
+
+The Flask application will start using the development server.
+
+Open the local Flask address shown in the terminal in a web browser.
+
+---
+
+# Model Evaluation
+
+The project can be evaluated using standard binary classification metrics:
+
+### Accuracy
+
+Measures the overall percentage of correctly classified samples.
+
+### Precision
+
+Measures how many samples predicted as fake are actually fake.
+
+### Recall
+
+Measures how many actual fake-news samples are correctly identified.
+
+### F1-Score
+
+The harmonic mean of precision and recall.
+
+### Confusion Matrix
+
+Shows the number of:
+
+```text
+True Positives
+True Negatives
+False Positives
+False Negatives
+```
+
+The current training implementation uses **accuracy as the GridSearchCV scoring metric**:
+
+```python
+scoring='accuracy'
+```
+
+If detailed evaluation metrics are required, precision, recall, F1-score, and a confusion matrix can be added to the training script.
+
+---
+
+# Security Considerations
+
+The current implementation contains an API key directly in the Python source.
+
+For production use, API keys should **not be hard-coded**.
+
+Instead, environment variables should be used:
+
+```text
+NEWS_API_KEY=<your-api-key>
+```
+
+The application should then read the key from the environment.
+
+Additionally, Flask should not be run with:
+
+```python
+app.run(debug=True)
+```
+
+in a production environment.
+
+A production deployment should use an appropriate WSGI server.
+
+---
+
+# Limitations
+
+* The model primarily works with **headline-level text** rather than performing complete article fact verification.
+* Predictions depend on the quality and distribution of the training datasets.
+* Machine learning classification does not guarantee factual correctness.
+* Related article retrieval depends on external API availability.
+* API rate limits may affect article retrieval.
+* The current implementation uses Flask's development server.
+* The API key is currently hard-coded and should be moved to environment variables.
+* The preprocessing pipeline uses stemming, which may sometimes produce linguistically unnatural word forms.
+
+---
+
+# Future Improvements
+
+Potential improvements include:
+
+* Add precision, recall, F1-score, and confusion matrix directly to the training pipeline.
+* Display prediction confidence/probability.
+* Train using complete article content rather than only headlines.
+* Experiment with Linear SVM, Naive Bayes, and other classifiers.
+* Explore transformer-based models such as BERT.
+* Improve NLP preprocessing.
+* Add a dedicated results page.
+* Add loading indicators while external APIs are queried.
+* Improve API error messages in the frontend.
+* Store API credentials securely using environment variables.
+* Add automated unit and integration tests.
+* Deploy using a production WSGI server.
+* Add claim-level verification using multiple independent sources.
+* Improve duplicate detection beyond exact title matching.
+
+---
+
+# Disclaimer
+
+This project is developed for **educational and research purposes**.
+
+The classification produced by the model should not be treated as definitive proof that a news article is fake or real. Users should independently verify important claims using reliable, authoritative, and independent sources.
+
+---
+
+# Author
+
+**Abhiraj Kumar**
+
+Built as a machine learning and web development project demonstrating the integration of:
+
+**NLP + Machine Learning + Flask + External APIs + Web Interface**
